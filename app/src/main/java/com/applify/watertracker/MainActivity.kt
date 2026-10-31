@@ -1,7 +1,6 @@
-package com.siprise.app
+package com.applify.watertracker
 
 import android.Manifest
-import android.app.Activity
 import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
@@ -37,12 +36,15 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -63,6 +65,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -117,6 +120,16 @@ class SipriseStore(context: Context) {
             put(JSONObject().put("amount", amount).put("time", System.currentTimeMillis()))
         }
         prefs.edit().putString("logs_${LocalDate.now()}", updated.toString()).apply()
+    }
+
+    fun undoLast(): Boolean {
+        val current = logs()
+        if (current.isEmpty()) return false
+        val updated = JSONArray().apply {
+            current.dropLast(1).forEach { put(JSONObject().put("amount", it.amount).put("time", it.time)) }
+        }
+        prefs.edit().putString("logs_${LocalDate.now()}", updated.toString()).apply()
+        return true
     }
 
     fun total(date: LocalDate) = logs(date).sumOf { it.amount }
@@ -188,6 +201,8 @@ private fun SipriseScreen(
     var logs by remember { mutableStateOf(store.logs()) }
     var goal by remember { mutableIntStateOf(store.goal()) }
     var interval by remember { mutableIntStateOf(store.interval()) }
+    var customAmount by remember { mutableStateOf("") }
+    var showCustomAmount by remember { mutableStateOf(false) }
     val total = logs.sumOf { it.amount }
     val number = remember { NumberFormat.getIntegerInstance() }
     val context = LocalContext.current
@@ -261,6 +276,7 @@ private fun SipriseScreen(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 QuickAdd("+150 ml") { store.add(150); logs = store.logs() }
                 QuickAdd("+500 ml") { store.add(500); logs = store.logs() }
+                QuickAdd("Custom") { customAmount = ""; showCustomAmount = true }
             }
 
             Spacer(Modifier.height(25.dp))
@@ -332,7 +348,11 @@ private fun SipriseScreen(
 
             if (logs.isNotEmpty()) {
                 Spacer(Modifier.height(25.dp))
-                Text("Recent sips", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Recent sips", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { if (store.undoLast()) logs = store.logs() }) { Text("Undo last") }
+                }
                 Spacer(Modifier.height(10.dp))
                 Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -353,6 +373,33 @@ private fun SipriseScreen(
 
             Spacer(Modifier.height(28.dp))
             Text("Sip at your own pace. Your log is saved locally.", color = Muted, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp))
+        }
+
+        if (showCustomAmount) {
+            val parsedAmount = customAmount.toIntOrNull()
+            AlertDialog(
+                onDismissRequest = { showCustomAmount = false },
+                title = { Text("Custom amount") },
+                text = {
+                    OutlinedTextField(
+                        value = customAmount,
+                        onValueChange = { customAmount = it.filter(Char::isDigit).take(4) },
+                        label = { Text("Milliliters") },
+                        supportingText = { Text("Enter 1–5,000 ml") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            parsedAmount?.let { store.add(it); logs = store.logs(); showCustomAmount = false }
+                        },
+                        enabled = parsedAmount != null && parsedAmount in 1..5000,
+                    ) { Text("Log water") }
+                },
+                dismissButton = { TextButton(onClick = { showCustomAmount = false }) { Text("Cancel") } },
+            )
         }
     }
 }

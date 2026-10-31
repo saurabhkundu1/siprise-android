@@ -4,15 +4,15 @@ plugins {
 }
 
 android {
-    namespace = "com.siprise.app"
+    namespace = "com.applify.watertracker"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.siprise.app"
-        minSdk = 26
+        applicationId = "com.applify.watertracker"
+        minSdk = 33
         targetSdk = 35
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.0"
     }
 
     buildFeatures {
