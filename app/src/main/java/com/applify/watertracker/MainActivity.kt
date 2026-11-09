@@ -6,14 +6,19 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.TimePickerDialog
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.graphics.drawable.Icon
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.format.DateFormat
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.edit
 import androidx.core.view.WindowCompat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -63,7 +68,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -77,6 +84,7 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 
 private val Ink = Color(0xFF163C39)
@@ -88,17 +96,39 @@ private val Muted = Color(0xFF71817D)
 data class DrinkLog(val amount: Int, val time: Long)
 
 class SipriseStore(context: Context) {
-    private val prefs = context.getSharedPreferences("siprise", Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences("siprise", Context.MODE_PRIVATE)
 
     fun goal() = prefs.getInt("goal", 2000).coerceIn(500, 6000)
-    fun setGoal(value: Int) = prefs.edit().putInt("goal", value.coerceIn(500, 6000)).apply()
+    fun setGoal(value: Int) {
+        prefs.edit { putInt("goal", value.coerceIn(500, 6000)) }
+        SipriseWidget.update(appContext)
+        if (remindersEnabled()) ReminderScheduler.schedule(appContext)
+    }
+    fun widgetAmount() = prefs.getInt("widget_amount", 250).takeIf { it in 50..1000 && it % 50 == 0 } ?: 250
+    fun setWidgetAmount(value: Int) {
+        require(value in 50..1000 && value % 50 == 0)
+        prefs.edit { putInt("widget_amount", value) }
+        SipriseWidget.update(appContext)
+    }
     fun remindersEnabled() = prefs.getBoolean("reminders", false)
-    fun setRemindersEnabled(value: Boolean) = prefs.edit().putBoolean("reminders", value).apply()
+    fun setRemindersEnabled(value: Boolean) = prefs.edit { putBoolean("reminders", value) }
     fun interval() = prefs.getInt("interval", 60).takeIf { it in listOf(60, 90, 120) } ?: 60
+    fun reminderStart() = prefs.getInt("reminder_start", 9 * 60).takeIf { it in 0 until 24 * 60 } ?: 9 * 60
+    fun reminderEnd() = prefs.getInt("reminder_end", 21 * 60).takeIf { it in 0 until 24 * 60 } ?: 21 * 60
+
+    fun setReminderWindow(start: Int, end: Int) {
+        require(start in 0 until 24 * 60 && end in 0 until 24 * 60 && start != end)
+        prefs.edit {
+            putInt("reminder_start", start)
+            putInt("reminder_end", end)
+        }
+        if (remindersEnabled()) ReminderScheduler.schedule(appContext)
+    }
 
     fun setInterval(value: Int) {
         require(value in listOf(60, 90, 120))
-        prefs.edit().putInt("interval", value).apply()
+        prefs.edit { putInt("interval", value) }
     }
 
     fun logs(date: LocalDate = LocalDate.now()): List<DrinkLog> = try {
@@ -119,7 +149,9 @@ class SipriseStore(context: Context) {
             logs().forEach { put(JSONObject().put("amount", it.amount).put("time", it.time)) }
             put(JSONObject().put("amount", amount).put("time", System.currentTimeMillis()))
         }
-        prefs.edit().putString("logs_${LocalDate.now()}", updated.toString()).apply()
+        prefs.edit { putString("logs_${LocalDate.now()}", updated.toString()) }
+        if (remindersEnabled()) ReminderScheduler.schedule(appContext)
+        SipriseWidget.update(appContext)
     }
 
     fun undoLast(): Boolean {
@@ -128,7 +160,9 @@ class SipriseStore(context: Context) {
         val updated = JSONArray().apply {
             current.dropLast(1).forEach { put(JSONObject().put("amount", it.amount).put("time", it.time)) }
         }
-        prefs.edit().putString("logs_${LocalDate.now()}", updated.toString()).apply()
+        prefs.edit { putString("logs_${LocalDate.now()}", updated.toString()) }
+        if (remindersEnabled()) ReminderScheduler.schedule(appContext)
+        SipriseWidget.update(appContext)
         return true
     }
 
@@ -162,7 +196,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun changeReminders(enabled: Boolean) {
-        if (enabled && Build.VERSION.SDK_INT >= 33 &&
+        if (enabled &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             permissionPending = true
@@ -200,12 +234,16 @@ private fun SipriseScreen(
 ) {
     var logs by remember { mutableStateOf(store.logs()) }
     var goal by remember { mutableIntStateOf(store.goal()) }
+    var widgetAmount by remember { mutableIntStateOf(store.widgetAmount()) }
     var interval by remember { mutableIntStateOf(store.interval()) }
+    var reminderStart by remember { mutableIntStateOf(store.reminderStart()) }
+    var reminderEnd by remember { mutableIntStateOf(store.reminderEnd()) }
     var customAmount by remember { mutableStateOf("") }
     var showCustomAmount by remember { mutableStateOf(false) }
     val total = logs.sumOf { it.amount }
     val number = remember { NumberFormat.getIntegerInstance() }
     val context = LocalContext.current
+    val currentLocale = LocalConfiguration.current.locales[0]
 
     MaterialTheme(colorScheme = lightColorScheme(primary = Teal, onPrimary = Color.White, background = Page, surface = Color.White)) {
         Column(
@@ -220,7 +258,7 @@ private fun SipriseScreen(
                 Spacer(Modifier.width(11.dp))
                 Column {
                     Text("Siprise", color = Ink, fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                    Text(LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault())), color = Muted, fontSize = 12.sp)
+                    Text(LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMMM d", currentLocale)), color = Muted, fontSize = 12.sp)
                 }
                 Spacer(Modifier.weight(1f))
                 Text("💧", fontSize = 22.sp)
@@ -278,6 +316,19 @@ private fun SipriseScreen(
                 QuickAdd("+500 ml") { store.add(500); logs = store.logs() }
                 QuickAdd("Custom") { customAmount = ""; showCustomAmount = true }
             }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Widget amount", color = Muted, fontSize = 13.sp)
+                Spacer(Modifier.weight(1f))
+                TextButton(enabled = widgetAmount > 50, onClick = {
+                    widgetAmount -= 50
+                    store.setWidgetAmount(widgetAmount)
+                }) { Text("−50") }
+                Text("${number.format(widgetAmount)} ml", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                TextButton(enabled = widgetAmount < 1000, onClick = {
+                    widgetAmount += 50
+                    store.setWidgetAmount(widgetAmount)
+                }) { Text("+50") }
+            }
 
             Spacer(Modifier.height(25.dp))
             Text("This week", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
@@ -297,7 +348,7 @@ private fun SipriseScreen(
                                 Box(Modifier.fillMaxWidth().fillMaxHeight(fill).clip(RoundedCornerShape(12.dp)).background(if (daysAgo == 0) Teal else Color(0xFF74BEB0)))
                             }
                             Spacer(Modifier.height(7.dp))
-                            Text(date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()), color = if (daysAgo == 0) Teal else Muted, fontSize = 12.sp, fontWeight = if (daysAgo == 0) FontWeight.Bold else FontWeight.Normal)
+                            Text(date.dayOfWeek.getDisplayName(TextStyle.NARROW, currentLocale), color = if (daysAgo == 0) Teal else Muted, fontSize = 12.sp, fontWeight = if (daysAgo == 0) FontWeight.Bold else FontWeight.Normal)
                         }
                     }
                 }
@@ -307,7 +358,7 @@ private fun SipriseScreen(
             Row(verticalAlignment = Alignment.Bottom) {
                 Column {
                     Text("Gentle reminders", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Text("A quiet nudge while you're awake", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 3.dp))
+                    Text("A quiet nudge on your schedule", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 3.dp))
                 }
                 Spacer(Modifier.weight(1f))
                 Switch(checked = remindersEnabled, onCheckedChange = onReminderChange)
@@ -341,7 +392,29 @@ private fun SipriseScreen(
                                 ) { Text(if (minutes == 60) "1 hour" else if (minutes == 90) "1.5 hours" else "2 hours", fontSize = 12.sp) }
                             }
                         }
-                        Text("Reminders run from 9 am to 9 pm.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
+                        Button(
+                            onClick = {
+                                TimePickerDialog(context, { _, startHour, startMinute ->
+                                    val start = startHour * 60 + startMinute
+                                    TimePickerDialog(context, { _, endHour, endMinute ->
+                                        val end = endHour * 60 + endMinute
+                                        if (start == end) {
+                                            Toast.makeText(context, R.string.reminder_hours_same, Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            reminderStart = start
+                                            reminderEnd = end
+                                            store.setReminderWindow(start, end)
+                                        }
+                                    }, reminderEnd / 60, reminderEnd % 60, DateFormat.is24HourFormat(context)).show()
+                                }, reminderStart / 60, reminderStart % 60, DateFormat.is24HourFormat(context)).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Mint, contentColor = Ink),
+                            shape = RoundedCornerShape(13.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                        ) {
+                            Text(stringResource(R.string.reminder_hours_label, formatReminderTime(context, reminderStart, currentLocale), formatReminderTime(context, reminderEnd, currentLocale)))
+                        }
+                        Text("Overnight reminder hours are supported.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
                     }
                 }
             }
@@ -361,7 +434,7 @@ private fun SipriseScreen(
                                 Box(Modifier.size(34.dp).clip(CircleShape).background(Mint), contentAlignment = Alignment.Center) { Text("◌", color = Teal, fontSize = 20.sp) }
                                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
                                     Text("Water", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                    Text(DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault()).format(java.time.Instant.ofEpochMilli(log.time).atZone(java.time.ZoneId.systemDefault())), color = Muted, fontSize = 12.sp)
+                                    Text(DateFormat.getTimeFormat(context).format(Date(log.time)), color = Muted, fontSize = 12.sp)
                                 }
                                 Text("+${log.amount} ml", color = Teal, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                             }
@@ -414,23 +487,22 @@ private fun RowScope.QuickAdd(label: String, onClick: () -> Unit) {
     ) { Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
 }
 
-private object ReminderScheduler {
+internal object ReminderScheduler {
     private const val CHANNEL_ID = "siprise_water_reminders"
+    const val ACTION_SNOOZE = "com.applify.watertracker.SNOOZE_REMINDER"
 
     fun schedule(context: Context) {
-        val it = SipriseStore(context).interval()
+        val store = SipriseStore(context)
         val alarm = context.getSystemService(AlarmManager::class.java)
         val pending = pendingIntent(context)
-        val next = Calendar.getInstance().apply { add(Calendar.MINUTE, it) }
-        when {
-            next.get(Calendar.HOUR_OF_DAY) >= 21 -> {
-                next.add(Calendar.DAY_OF_YEAR, 1)
-                next.set(Calendar.HOUR_OF_DAY, 9)
-                next.set(Calendar.MINUTE, 0)
-            }
-            next.get(Calendar.HOUR_OF_DAY) < 9 -> {
-                next.set(Calendar.HOUR_OF_DAY, 9)
-                next.set(Calendar.MINUTE, 0)
+        val next = Calendar.getInstance()
+        if (store.total(LocalDate.now()) >= store.goal()) {
+            next.add(Calendar.DAY_OF_YEAR, 1)
+            setWindowStart(next, store.reminderStart())
+        } else {
+            next.add(Calendar.MINUTE, store.interval())
+            if (!isWithinReminderWindow(next, store.reminderStart(), store.reminderEnd())) {
+                setNextWindowStart(next, store.reminderStart(), store.reminderEnd())
             }
         }
         next.set(Calendar.SECOND, 0)
@@ -441,6 +513,41 @@ private object ReminderScheduler {
 
     fun cancel(context: Context) = context.getSystemService(AlarmManager::class.java).cancel(pendingIntent(context))
 
+    fun snooze(context: Context) {
+        val next = Calendar.getInstance().apply {
+            add(Calendar.MINUTE, 30)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        context.getSystemService(NotificationManager::class.java).cancel(1)
+        context.getSystemService(AlarmManager::class.java)
+            .setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next.timeInMillis, pendingIntent(context))
+    }
+
+    fun isWithinReminderWindow(time: Calendar, start: Int, end: Int): Boolean {
+        val minute = time.get(Calendar.HOUR_OF_DAY) * 60 + time.get(Calendar.MINUTE)
+        return if (start < end) minute in start until end else minute >= start || minute < end
+    }
+
+    private fun setNextWindowStart(time: Calendar, start: Int, end: Int) {
+        val minute = time.get(Calendar.HOUR_OF_DAY) * 60 + time.get(Calendar.MINUTE)
+        val windowIsActive = isWithinReminderWindow(time, start, end)
+        val moveToTomorrow = when {
+            windowIsActive -> true
+            start < end -> minute >= end
+            else -> minute < end || minute >= start
+        }
+        if (moveToTomorrow) time.add(Calendar.DAY_OF_YEAR, 1)
+        setWindowStart(time, start)
+    }
+
+    private fun setWindowStart(time: Calendar, start: Int) {
+        time.set(Calendar.HOUR_OF_DAY, start / 60)
+        time.set(Calendar.MINUTE, start % 60)
+        time.set(Calendar.SECOND, 0)
+        time.set(Calendar.MILLISECOND, 0)
+    }
+
     private fun pendingIntent(context: Context) = PendingIntent.getBroadcast(
         context,
         1,
@@ -450,18 +557,31 @@ private object ReminderScheduler {
 
     fun postNotification(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(
+        manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Water reminders", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "Gentle reminders to take a sip of water"
             },
         )
         try {
             val notification = Notification.Builder(context, CHANNEL_ID)
+            val snooze = PendingIntent.getBroadcast(
+                context,
+                2,
+                Intent(context, ReminderReceiver::class.java).setAction(ACTION_SNOOZE),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
             manager.notify(
                 1,
                 notification.setSmallIcon(R.drawable.ic_notification)
                     .setContentTitle("Time for a little sip")
                     .setContentText("Take a moment to enjoy some water.")
+                    .addAction(
+                        Notification.Action.Builder(
+                            Icon.createWithResource(context, R.drawable.ic_notification),
+                            context.getString(R.string.reminder_snooze),
+                            snooze,
+                        ).build(),
+                    )
                     .setAutoCancel(true)
                     .build(),
             )
@@ -473,12 +593,22 @@ private object ReminderScheduler {
 
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        if (!SipriseStore(context).remindersEnabled()) return
-        val now = LocalTime.now()
-        if (now.hour in 9..20) ReminderScheduler.postNotification(context)
+        val store = SipriseStore(context)
+        if (!store.remindersEnabled()) return
+        if (intent?.action == ReminderScheduler.ACTION_SNOOZE) {
+            if (store.total(LocalDate.now()) < store.goal()) ReminderScheduler.snooze(context)
+            else ReminderScheduler.schedule(context)
+            return
+        }
+        if (store.total(LocalDate.now()) < store.goal() && ReminderScheduler.isWithinReminderWindow(Calendar.getInstance(), store.reminderStart(), store.reminderEnd())) {
+            ReminderScheduler.postNotification(context)
+        }
         ReminderScheduler.schedule(context)
     }
 }
+
+private fun formatReminderTime(context: Context, minutes: Int, locale: Locale = Locale.getDefault()): String = LocalTime.of(minutes / 60, minutes % 60)
+    .format(DateTimeFormatter.ofPattern(if (DateFormat.is24HourFormat(context)) "HH:mm" else "h:mm a", locale))
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {

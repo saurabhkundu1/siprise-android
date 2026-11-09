@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- shortcut: date rollover waits for the next system widget update, add a date-change receiver if users need an exact reset. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/widget_description"
+    android:initialLayout="@layout/siprise_widget"
+    android:minHeight="120dp"
+    android:minResizeHeight="100dp"
+    android:minResizeWidth="180dp"
+    android:minWidth="220dp"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="1800000"
+    android:widgetCategory="home_screen" />

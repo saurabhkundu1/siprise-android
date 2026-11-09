@@ -10,9 +10,12 @@ Log a sip, see your progress, and keep a simple daily rhythm. Your intake histor
 ## What it does
 
 - Log 150 ml, 250 ml, 500 ml, or a custom amount.
+- Check today's progress and log from a home-screen widget; choose its amount in the app from 50–1,000 ml in 50 ml steps (250 ml by default).
+- The widget exposes today's total and goal to screen readers, alongside its labeled quick-log button.
 - Undo the most recent entry.
 - Set a daily goal and review the last seven days.
-- Turn on daytime reminders and choose an interval.
+- See recent sip times in your phone's preferred 12- or 24-hour format.
+- Turn on reminders, choose an interval and the hours that fit your day (including overnight), and snooze a nudge for 30 minutes; reminders pause after your daily goal and resume at the next day's chosen start.
 - Works offline; no account or internet permission.
 
 ## Build
@@ -25,7 +28,7 @@ Open the project in Android Studio or run `gradlew.bat assembleDebug` on Windows
 
 ## Releases and Droidify
 
-The source is `1.0.0` (`versionCode` 1). Pushing the matching `v1.0.0` tag builds and verifies a signed APK, publishes a [GitHub release](https://github.com/saurabhkundu1/siprise-android/releases), and sends it to [Applify](https://saurabhkundu1.github.io/Applify/) for the Droidify-compatible repository.
+The source is `1.5.0` (`versionCode` 6). Pushing the matching `v1.5.0` tag builds and verifies a signed APK, publishes a [GitHub release](https://github.com/saurabhkundu1/siprise-android/releases), and sends it to [Applify](https://saurabhkundu1.github.io/Applify/) for the Droidify-compatible repository.
 
 Before the first release, configure a new Siprise app-signing key and the Applify repository's replacement signing fingerprint. The workflow requires repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, and `APPLIFY_DISPATCH_TOKEN`; variables `APPLIFY_RELEASES_ENABLED`, `EXPECTED_WATERTRACKER_SIGNER_SHA256`, and `EXPECTED_REPO_SIGNER_SHA256`; and the matching `EXPECTED_WATERTRACKER_SIGNER_SHA256` variable in Applify. The dispatch token needs Contents: write access to Applify.
 
