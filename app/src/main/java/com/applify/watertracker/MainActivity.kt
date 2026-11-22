@@ -71,6 +71,11 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -252,7 +257,7 @@ private fun SipriseScreen(
         ) {
             Spacer(Modifier.height(22.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(40.dp).clip(CircleShape).background(Mint), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(40.dp).clip(CircleShape).background(Mint).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
                     Text("✦", color = Teal, fontSize = 21.sp)
                 }
                 Spacer(Modifier.width(11.dp))
@@ -261,7 +266,7 @@ private fun SipriseScreen(
                     Text(LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMMM d", currentLocale)), color = Muted, fontSize = 12.sp)
                 }
                 Spacer(Modifier.weight(1f))
-                Text("💧", fontSize = 22.sp)
+                Text("💧", fontSize = 22.sp, modifier = Modifier.clearAndSetSemantics {})
             }
 
             Spacer(Modifier.height(26.dp))
@@ -277,7 +282,12 @@ private fun SipriseScreen(
                         Text("${number.format((total * 100 / goal).coerceAtMost(100))}%", color = Teal, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
                     Spacer(Modifier.height(14.dp))
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(190.dp)) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.size(190.dp).semantics {
+                            contentDescription = "Hydration progress: ${number.format(total)} of ${number.format(goal)} milliliters, ${(total * 100 / goal).coerceAtMost(100)} percent completed"
+                        }
+                    ) {
                         val fraction = (total.toFloat() / goal).coerceIn(0f, 1f)
                         Canvas(Modifier.fillMaxSize()) {
                             val stroke = 15.dp.toPx()
@@ -294,9 +304,21 @@ private fun SipriseScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Daily goal", color = Muted, fontSize = 13.sp)
                         Spacer(Modifier.width(8.dp))
-                        TextButton(onClick = { goal = (goal - 250).coerceAtLeast(500); store.setGoal(goal) }) { Text("−", fontSize = 20.sp) }
+                        TextButton(
+                            onClick = { goal = (goal - 250).coerceAtLeast(500); store.setGoal(goal) },
+                            modifier = Modifier.semantics {
+                                contentDescription = "Decrease daily goal by 250 milliliters"
+                                role = Role.Button
+                            }
+                        ) { Text("−", fontSize = 20.sp) }
                         Text("${number.format(goal)} ml", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        TextButton(onClick = { goal = (goal + 250).coerceAtMost(6000); store.setGoal(goal) }) { Text("+", fontSize = 20.sp) }
+                        TextButton(
+                            onClick = { goal = (goal + 250).coerceAtMost(6000); store.setGoal(goal) },
+                            modifier = Modifier.semantics {
+                                contentDescription = "Increase daily goal by 250 milliliters"
+                                role = Role.Button
+                            }
+                        ) { Text("+", fontSize = 20.sp) }
                     }
                 }
             }
@@ -304,7 +326,9 @@ private fun SipriseScreen(
             Spacer(Modifier.height(18.dp))
             Button(
                 onClick = { store.add(250); logs = store.logs() },
-                modifier = Modifier.fillMaxWidth().height(58.dp),
+                modifier = Modifier.fillMaxWidth().height(58.dp).semantics {
+                    contentDescription = "Log a glass of water, 250 milliliters"
+                },
                 shape = RoundedCornerShape(18.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Teal),
             ) {
@@ -319,15 +343,29 @@ private fun SipriseScreen(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Widget amount", color = Muted, fontSize = 13.sp)
                 Spacer(Modifier.weight(1f))
-                TextButton(enabled = widgetAmount > 50, onClick = {
-                    widgetAmount -= 50
-                    store.setWidgetAmount(widgetAmount)
-                }) { Text("−50") }
+                TextButton(
+                    enabled = widgetAmount > 50,
+                    onClick = {
+                        widgetAmount -= 50
+                        store.setWidgetAmount(widgetAmount)
+                    },
+                    modifier = Modifier.semantics {
+                        contentDescription = "Decrease widget amount by 50 milliliters"
+                        role = Role.Button
+                    }
+                ) { Text("−50") }
                 Text("${number.format(widgetAmount)} ml", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                TextButton(enabled = widgetAmount < 1000, onClick = {
-                    widgetAmount += 50
-                    store.setWidgetAmount(widgetAmount)
-                }) { Text("+50") }
+                TextButton(
+                    enabled = widgetAmount < 1000,
+                    onClick = {
+                        widgetAmount += 50
+                        store.setWidgetAmount(widgetAmount)
+                    },
+                    modifier = Modifier.semantics {
+                        contentDescription = "Increase widget amount by 50 milliliters"
+                        role = Role.Button
+                    }
+                ) { Text("+50") }
             }
 
             Spacer(Modifier.height(25.dp))
@@ -343,7 +381,13 @@ private fun SipriseScreen(
                         val date = LocalDate.now().minusDays(daysAgo.toLong())
                         val amount = if (daysAgo == 0) total else store.total(date)
                         val fill = (amount.toFloat() / goal).coerceIn(0f, 1f)
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
+                        val dayFullName = date.dayOfWeek.getDisplayName(TextStyle.FULL, currentLocale)
+                        val daySummary = if (daysAgo == 0) "Today ($dayFullName): ${number.format(amount)} of ${number.format(goal)} milliliters" else "$dayFullName: ${number.format(amount)} of ${number.format(goal)} milliliters"
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Bottom,
+                            modifier = Modifier.semantics { contentDescription = daySummary }
+                        ) {
                             Box(Modifier.width(20.dp).height(70.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFFEAF0EC)), contentAlignment = Alignment.BottomCenter) {
                                 Box(Modifier.fillMaxWidth().fillMaxHeight(fill).clip(RoundedCornerShape(12.dp)).background(if (daysAgo == 0) Teal else Color(0xFF74BEB0)))
                             }
@@ -424,7 +468,10 @@ private fun SipriseScreen(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Recent sips", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { if (store.undoLast()) logs = store.logs() }) { Text("Undo last") }
+                    TextButton(
+                        onClick = { if (store.undoLast()) logs = store.logs() },
+                        modifier = Modifier.semantics { contentDescription = "Undo last logged drink" }
+                    ) { Text("Undo last") }
                 }
                 Spacer(Modifier.height(10.dp))
                 Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
@@ -479,9 +526,12 @@ private fun SipriseScreen(
 
 @Composable
 private fun RowScope.QuickAdd(label: String, onClick: () -> Unit) {
+    val description = if (label.startsWith("+")) "Quick add $label of water" else "Log custom amount of water"
     Button(
         onClick = onClick,
-        modifier = Modifier.weight(1f).height(48.dp),
+        modifier = Modifier.weight(1f).height(48.dp).semantics {
+            contentDescription = description
+        },
         shape = RoundedCornerShape(16.dp),
         colors = ButtonDefaults.buttonColors(containerColor = Mint, contentColor = Ink),
     ) { Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
