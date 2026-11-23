@@ -1,5 +1,7 @@
 # Siprise
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 <p align="center">
   <img src="app/src/main/res/drawable-nodpi/ic_siprise.jpg" alt="Siprise water drop app icon" width="144">
 </p>
@@ -38,4 +40,4 @@ Siprise stores intake history and preferences locally. Reminders are off until e
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+MIT License. See [LICENSE](LICENSE).
