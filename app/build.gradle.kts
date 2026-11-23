@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "com.applify.watertracker"
-    compileSdk = 37
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.applify.watertracker"
         minSdk = 33
-        targetSdk = 37
+        targetSdk = 35
         versionCode = 6
         versionName = "1.5.0"
     }

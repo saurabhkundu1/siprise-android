@@ -285,7 +285,7 @@ private fun SipriseScreen(
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier.size(190.dp).semantics {
-                            contentDescription = "Hydration progress: ${number.format(total)} of ${number.format(goal)} milliliters, ${(total * 100 / goal).coerceAtMost(100)} percent completed"
+                            contentDescription = "Hydration progress: ${number.format(total)} of ${number.format(goal)} milliliters, ${((total.toFloat() / goal * 100).toInt().coerceAtMost(100))} percent completed"
                         }
                     ) {
                         val fraction = (total.toFloat() / goal).coerceIn(0f, 1f)
@@ -581,9 +581,7 @@ internal object ReminderScheduler {
 
     private fun setNextWindowStart(time: Calendar, start: Int, end: Int) {
         val minute = time.get(Calendar.HOUR_OF_DAY) * 60 + time.get(Calendar.MINUTE)
-        val windowIsActive = isWithinReminderWindow(time, start, end)
         val moveToTomorrow = when {
-            windowIsActive -> true
             start < end -> minute >= end
             else -> minute < end || minute >= start
         }
