@@ -323,6 +323,26 @@ private fun SipriseScreen(
                 }
             }
 
+            if (total >= goal) {
+                Spacer(Modifier.height(14.dp))
+                Card(
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFD4EDE4))
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("🎉", fontSize = 26.sp)
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text("Goal Achieved!", color = Teal, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text("You reached ${number.format(total)} ml of your ${number.format(goal)} ml target today. Keep up the rhythm!", color = Ink, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(18.dp))
             Button(
                 onClick = { store.add(250); logs = store.logs() },
