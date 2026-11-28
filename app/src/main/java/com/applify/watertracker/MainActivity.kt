@@ -6,22 +6,19 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.TimePickerDialog
 import android.content.BroadcastReceiver
 import android.content.Context
-import android.graphics.drawable.Icon
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
+import android.graphics.drawable.Icon
 import android.os.Bundle
 import android.provider.Settings
 import android.text.format.DateFormat
-import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.edit
-import androidx.core.view.WindowCompat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,14 +26,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -48,13 +45,16 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -64,13 +64,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -81,6 +80,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
+import androidx.core.view.WindowCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.NumberFormat
@@ -91,12 +92,6 @@ import java.time.format.TextStyle
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-
-private val Ink = Color(0xFF163C39)
-private val Teal = Color(0xFF087F72)
-private val Mint = Color(0xFFE4F4ED)
-private val Page = Color(0xFFF6F8F5)
-private val Muted = Color(0xFF71817D)
 
 data class DrinkLog(val amount: Int, val time: Long)
 
@@ -110,17 +105,46 @@ class SipriseStore(context: Context) {
         SipriseWidget.update(appContext)
         if (remindersEnabled()) ReminderScheduler.schedule(appContext)
     }
+
+    fun defaultGlassAmount() = prefs.getInt("default_glass", 250).takeIf { it in 100..500 && it % 50 == 0 } ?: 250
+    fun setDefaultGlassAmount(value: Int) {
+        prefs.edit { putInt("default_glass", value.coerceIn(100, 500)) }
+    }
+
+    fun quickPreset1() = prefs.getInt("quick_preset_1", 150).takeIf { it in 50..500 && it % 50 == 0 } ?: 150
+    fun setQuickPreset1(value: Int) {
+        prefs.edit { putInt("quick_preset_1", value.coerceIn(50, 500)) }
+    }
+
+    fun quickPreset2() = prefs.getInt("quick_preset_2", 500).takeIf { it in 100..1000 && it % 50 == 0 } ?: 500
+    fun setQuickPreset2(value: Int) {
+        prefs.edit { putInt("quick_preset_2", value.coerceIn(100, 1000)) }
+    }
+
     fun widgetAmount() = prefs.getInt("widget_amount", 250).takeIf { it in 50..1000 && it % 50 == 0 } ?: 250
     fun setWidgetAmount(value: Int) {
         require(value in 50..1000 && value % 50 == 0)
         prefs.edit { putInt("widget_amount", value) }
         SipriseWidget.update(appContext)
     }
+
     fun remindersEnabled() = prefs.getBoolean("reminders", false)
     fun setRemindersEnabled(value: Boolean) = prefs.edit { putBoolean("reminders", value) }
-    fun interval() = prefs.getInt("interval", 60).takeIf { it in listOf(60, 90, 120) } ?: 60
-    fun reminderStart() = prefs.getInt("reminder_start", 9 * 60).takeIf { it in 0 until 24 * 60 } ?: 9 * 60
-    fun reminderEnd() = prefs.getInt("reminder_end", 21 * 60).takeIf { it in 0 until 24 * 60 } ?: 21 * 60
+
+    fun pauseOnGoal() = prefs.getBoolean("pause_on_goal", true)
+    fun setPauseOnGoal(value: Boolean) {
+        prefs.edit { putBoolean("pause_on_goal", value) }
+        if (remindersEnabled()) ReminderScheduler.schedule(appContext)
+    }
+
+    fun interval() = prefs.getInt("interval", 60).takeIf { it in listOf(60, 90, 120, 180) } ?: 60
+    fun setInterval(value: Int) {
+        require(value in listOf(60, 90, 120, 180))
+        prefs.edit { putInt("interval", value) }
+    }
+
+    fun reminderStart() = prefs.getInt("reminder_start", 8 * 60).takeIf { it in 0 until 24 * 60 } ?: 8 * 60
+    fun reminderEnd() = prefs.getInt("reminder_end", 22 * 60).takeIf { it in 0 until 24 * 60 } ?: 22 * 60
 
     fun setReminderWindow(start: Int, end: Int) {
         require(start in 0 until 24 * 60 && end in 0 until 24 * 60 && start != end)
@@ -131,10 +155,26 @@ class SipriseStore(context: Context) {
         if (remindersEnabled()) ReminderScheduler.schedule(appContext)
     }
 
-    fun setInterval(value: Int) {
-        require(value in listOf(60, 90, 120))
-        prefs.edit { putInt("interval", value) }
+    fun themeMode(): ThemeMode = ThemeMode.fromId(prefs.getInt("theme_mode", ThemeMode.System.id))
+    fun setThemeMode(mode: ThemeMode) {
+        prefs.edit { putInt("theme_mode", mode.id) }
+        SipriseWidget.update(appContext)
     }
+
+    fun colorScheme(): SipriseColorScheme = SipriseColorScheme.fromKey(prefs.getString("color_scheme", null))
+    fun setColorScheme(scheme: SipriseColorScheme) {
+        prefs.edit { putString("color_scheme", scheme.key) }
+        SipriseWidget.update(appContext)
+    }
+
+    fun volumeUnit(): VolumeUnit = VolumeUnit.fromKey(prefs.getString("volume_unit", null))
+    fun setVolumeUnit(unit: VolumeUnit) {
+        prefs.edit { putString("volume_unit", unit.key) }
+        SipriseWidget.update(appContext)
+    }
+
+    fun notificationPromptDismissed() = prefs.getBoolean("notif_prompt_dismissed", false)
+    fun setNotificationPromptDismissed(dismissed: Boolean) = prefs.edit { putBoolean("notif_prompt_dismissed", dismissed) }
 
     fun logs(date: LocalDate = LocalDate.now()): List<DrinkLog> = try {
         val stored = JSONArray(prefs.getString("logs_$date", "[]"))
@@ -171,6 +211,19 @@ class SipriseStore(context: Context) {
         return true
     }
 
+    fun resetToday() {
+        prefs.edit { remove("logs_${LocalDate.now()}") }
+        if (remindersEnabled()) ReminderScheduler.schedule(appContext)
+        SipriseWidget.update(appContext)
+    }
+
+    fun clearAllHistory() {
+        val logKeys = prefs.all.keys.filter { it.startsWith("logs_") }
+        prefs.edit { logKeys.forEach { remove(it) } }
+        if (remindersEnabled()) ReminderScheduler.schedule(appContext)
+        SipriseWidget.update(appContext)
+    }
+
     fun total(date: LocalDate) = logs(date).sumOf { it.amount }
 }
 
@@ -178,26 +231,118 @@ class MainActivity : AppCompatActivity() {
     private val store by lazy { SipriseStore(this) }
     private var reminders by mutableStateOf(false)
     private var notificationDenied by mutableStateOf(false)
+    private var hasNotificationPermission by mutableStateOf(true)
+    private var showSettings by mutableStateOf(false)
+    private var dataVersion by mutableIntStateOf(0)
     private var permissionPending = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         reminders = store.remindersEnabled()
+        hasNotificationPermission = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = true
-            isAppearanceLightNavigationBars = true
-        }
-        setContentView(ComposeView(this).apply {
-            setContent {
-                SipriseScreen(
-                    store = store,
-                    remindersEnabled = reminders,
-                    notificationDenied = notificationDenied,
-                    onReminderChange = ::changeReminders,
-                )
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (showSettings) {
+                    showSettings = false
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
             }
         })
+
+        setContentView(ComposeView(this).apply {
+            setContent {
+                var themeMode by remember { mutableStateOf(store.themeMode()) }
+                var colorScheme by remember { mutableStateOf(store.colorScheme()) }
+                var volumeUnit by remember { mutableStateOf(store.volumeUnit()) }
+
+                val isDark = when (themeMode) {
+                    ThemeMode.Dark -> true
+                    ThemeMode.Light -> false
+                    ThemeMode.System -> isSystemInDarkTheme()
+                }
+                val palette = colorScheme.palette(isDark)
+
+                LaunchedEffect(isDark) {
+                    WindowCompat.getInsetsController(window, window.decorView).apply {
+                        isAppearanceLightStatusBars = !isDark
+                        isAppearanceLightNavigationBars = !isDark
+                    }
+                }
+
+                val materialColors = if (isDark) {
+                    darkColorScheme(
+                        primary = palette.primary,
+                        onPrimary = palette.onPrimary,
+                        background = palette.page,
+                        surface = palette.card,
+                        onBackground = palette.text,
+                        onSurface = palette.text,
+                    )
+                } else {
+                    lightColorScheme(
+                        primary = palette.primary,
+                        onPrimary = palette.onPrimary,
+                        background = palette.page,
+                        surface = palette.card,
+                        onBackground = palette.text,
+                        onSurface = palette.text,
+                    )
+                }
+
+                MaterialTheme(colorScheme = materialColors) {
+                    if (showSettings) {
+                        SettingsScreen(
+                            store = store,
+                            palette = palette,
+                            remindersEnabled = reminders,
+                            notificationDenied = notificationDenied,
+                            themeMode = themeMode,
+                            colorScheme = colorScheme,
+                            volumeUnit = volumeUnit,
+                            onBack = { showSettings = false },
+                            onReminderChange = ::changeReminders,
+                            onThemeModeChange = {
+                                themeMode = it
+                                store.setThemeMode(it)
+                            },
+                            onColorSchemeChange = {
+                                colorScheme = it
+                                store.setColorScheme(it)
+                            },
+                            onVolumeUnitChange = {
+                                volumeUnit = it
+                                store.setVolumeUnit(it)
+                            },
+                            onDataChanged = { dataVersion++ },
+                        )
+                    } else {
+                        SipriseScreen(
+                            store = store,
+                            palette = palette,
+                            volumeUnit = volumeUnit,
+                            remindersEnabled = reminders,
+                            hasNotificationPermission = hasNotificationPermission,
+                            notificationDenied = notificationDenied,
+                            dataVersion = dataVersion,
+                            onOpenSettings = { showSettings = true },
+                            onRequestNotificationPermission = { changeReminders(true) },
+                        )
+                    }
+                }
+            }
+        })
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val granted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        hasNotificationPermission = granted
+        if (granted) notificationDenied = false
+        dataVersion++
     }
 
     private fun changeReminders(enabled: Boolean) {
@@ -224,6 +369,7 @@ class MainActivity : AppCompatActivity() {
         if (requestCode == 20 && permissionPending) {
             permissionPending = false
             val granted = grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
+            hasNotificationPermission = granted
             notificationDenied = !granted
             applyReminderSetting(granted)
         }
@@ -233,319 +379,345 @@ class MainActivity : AppCompatActivity() {
 @Composable
 private fun SipriseScreen(
     store: SipriseStore,
+    palette: SiprisePalette,
+    volumeUnit: VolumeUnit,
     remindersEnabled: Boolean,
+    hasNotificationPermission: Boolean,
     notificationDenied: Boolean,
-    onReminderChange: (Boolean) -> Unit,
+    dataVersion: Int,
+    onOpenSettings: () -> Unit,
+    onRequestNotificationPermission: () -> Unit,
 ) {
-    var logs by remember { mutableStateOf(store.logs()) }
-    var goal by remember { mutableIntStateOf(store.goal()) }
-    var widgetAmount by remember { mutableIntStateOf(store.widgetAmount()) }
-    var interval by remember { mutableIntStateOf(store.interval()) }
-    var reminderStart by remember { mutableIntStateOf(store.reminderStart()) }
-    var reminderEnd by remember { mutableIntStateOf(store.reminderEnd()) }
+    var logs by remember(dataVersion) { mutableStateOf(store.logs()) }
+    var goal by remember(dataVersion) { mutableIntStateOf(store.goal()) }
+    var defaultGlass by remember(dataVersion) { mutableIntStateOf(store.defaultGlassAmount()) }
+    var preset1 by remember(dataVersion) { mutableIntStateOf(store.quickPreset1()) }
+    var preset2 by remember(dataVersion) { mutableIntStateOf(store.quickPreset2()) }
+    var promptDismissed by remember { mutableStateOf(store.notificationPromptDismissed()) }
     var customAmount by remember { mutableStateOf("") }
     var showCustomAmount by remember { mutableStateOf(false) }
+
     val total = logs.sumOf { it.amount }
     val number = remember { NumberFormat.getIntegerInstance() }
     val context = LocalContext.current
     val currentLocale = LocalConfiguration.current.locales[0]
 
-    MaterialTheme(colorScheme = lightColorScheme(primary = Teal, onPrimary = Color.White, background = Page, surface = Color.White)) {
-        Column(
-            Modifier.fillMaxSize().background(Page).windowInsetsPadding(WindowInsets.safeDrawing)
-                .verticalScroll(rememberScrollState()).padding(horizontal = 22.dp),
-        ) {
-            Spacer(Modifier.height(22.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(40.dp).clip(CircleShape).background(Mint).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
-                    Text("✦", color = Teal, fontSize = 21.sp)
-                }
-                Spacer(Modifier.width(11.dp))
-                Column {
-                    Text("Siprise", color = Ink, fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                    Text(LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMMM d", currentLocale)), color = Muted, fontSize = 12.sp)
-                }
-                Spacer(Modifier.weight(1f))
-                Text("💧", fontSize = 22.sp, modifier = Modifier.clearAndSetSemantics {})
-            }
-
-            Spacer(Modifier.height(26.dp))
-            Text("A little sip, a brighter day.", color = Ink, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-            Text("Small sips add up. Keep your rhythm going.", color = Muted, fontSize = 14.sp, modifier = Modifier.padding(top = 5.dp))
-
-            Spacer(Modifier.height(20.dp))
-            Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("TODAY'S HYDRATION", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
-                        Spacer(Modifier.weight(1f))
-                        Text("${number.format((total * 100 / goal).coerceAtMost(100))}%", color = Teal, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(Modifier.height(14.dp))
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.size(190.dp).semantics {
-                            contentDescription = "Hydration progress: ${number.format(total)} of ${number.format(goal)} milliliters, ${((total.toFloat() / goal * 100).toInt().coerceAtMost(100))} percent completed"
-                        }
-                    ) {
-                        val fraction = (total.toFloat() / goal).coerceIn(0f, 1f)
-                        Canvas(Modifier.fillMaxSize()) {
-                            val stroke = 15.dp.toPx()
-                            drawArc(Color(0xFFEAF0EC), -90f, 360f, false, style = Stroke(stroke, cap = StrokeCap.Round), size = Size(size.width, size.height))
-                            if (fraction > 0f) drawArc(Teal, -90f, 360f * fraction, false, style = Stroke(stroke, cap = StrokeCap.Round), size = Size(size.width, size.height))
-                        }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("${number.format(total)}", color = Ink, fontSize = 35.sp, fontWeight = FontWeight.Bold)
-                            Text("ml so far", color = Muted, fontSize = 13.sp)
-                            Text("of ${number.format(goal)} ml", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 3.dp))
-                        }
-                    }
-                    Spacer(Modifier.height(14.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Daily goal", color = Muted, fontSize = 13.sp)
-                        Spacer(Modifier.width(8.dp))
-                        TextButton(
-                            onClick = { goal = (goal - 250).coerceAtLeast(500); store.setGoal(goal) },
-                            modifier = Modifier.semantics {
-                                contentDescription = "Decrease daily goal by 250 milliliters"
-                                role = Role.Button
-                            }
-                        ) { Text("−", fontSize = 20.sp) }
-                        Text("${number.format(goal)} ml", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        TextButton(
-                            onClick = { goal = (goal + 250).coerceAtMost(6000); store.setGoal(goal) },
-                            modifier = Modifier.semantics {
-                                contentDescription = "Increase daily goal by 250 milliliters"
-                                role = Role.Button
-                            }
-                        ) { Text("+", fontSize = 20.sp) }
-                    }
-                }
-            }
-
-            if (total >= goal) {
-                Spacer(Modifier.height(14.dp))
-                Card(
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFD4EDE4))
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("🎉", fontSize = 26.sp)
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            Text("Goal Achieved!", color = Teal, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                            Text("You reached ${number.format(total)} ml of your ${number.format(goal)} ml target today. Keep up the rhythm!", color = Ink, fontSize = 12.sp)
-                        }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(18.dp))
-            Button(
-                onClick = { store.add(250); logs = store.logs() },
-                modifier = Modifier.fillMaxWidth().height(58.dp).semantics {
-                    contentDescription = "Log a glass of water, 250 milliliters"
-                },
-                shape = RoundedCornerShape(18.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Teal),
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(palette.page)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 22.dp),
+    ) {
+        Spacer(Modifier.height(22.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(palette.softChip)
+                    .clearAndSetSemantics {},
+                contentAlignment = Alignment.Center
             ) {
-                Text("＋   Log a glass  ·  250 ml", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text("✦", color = palette.primary, fontSize = 21.sp)
+            }
+            Spacer(Modifier.width(11.dp))
+            Column {
+                Text("Siprise", color = palette.text, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMMM d", currentLocale)),
+                    color = palette.muted,
+                    fontSize = 12.sp
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            IconButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.semantics {
+                    contentDescription = if (remindersEnabled) "Reminders active, open settings" else "Reminders off, open settings"
+                }
+            ) {
+                Icon(
+                    painter = painterResource(
+                        if (remindersEnabled) R.drawable.ic_notifications_rounded else R.drawable.ic_notifications_off_rounded
+                    ),
+                    contentDescription = null,
+                    tint = if (remindersEnabled) palette.primary else palette.muted,
+                    modifier = Modifier.size(21.dp)
+                )
+            }
+            IconButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.semantics { contentDescription = "Open settings" }
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_settings_rounded),
+                    contentDescription = "Settings",
+                    tint = palette.text,
+                    modifier = Modifier.size(23.dp)
+                )
+            }
+        }
+
+        if (!hasNotificationPermission && !promptDismissed) {
+            Spacer(Modifier.height(14.dp))
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = palette.softChip)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            if (notificationDenied) "Notifications disabled" else "Enable hydration reminders",
+                            color = palette.text,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            if (notificationDenied) "Allow notifications in system settings for gentle nudges."
+                            else "Get gentle reminders during your daytime hours.",
+                            color = palette.muted,
+                            fontSize = 11.sp
+                        )
+                    }
+                    TextButton(onClick = {
+                        promptDismissed = true
+                        store.setNotificationPromptDismissed(true)
+                    }) {
+                        Text("Later", color = palette.muted, fontSize = 12.sp)
+                    }
+                    TextButton(onClick = {
+                        if (notificationDenied) {
+                            context.startActivity(
+                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            )
+                        } else {
+                            onRequestNotificationPermission()
+                        }
+                    }) {
+                        Text(
+                            if (notificationDenied) "Settings" else "Allow",
+                            color = palette.primary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(22.dp))
+        Text("A little sip, a brighter day.", color = palette.text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+        Text("Small sips add up. Keep your rhythm going.", color = palette.muted, fontSize = 14.sp, modifier = Modifier.padding(top = 5.dp))
+
+        Spacer(Modifier.height(20.dp))
+        Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = palette.card)) {
+            Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("TODAY'S HYDRATION", color = palette.muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text("${number.format((total * 100 / goal).coerceAtMost(100))}%", color = palette.primary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(14.dp))
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(190.dp).semantics {
+                        contentDescription = "Hydration progress: ${formatVolume(total, volumeUnit, number)} of ${formatVolume(goal, volumeUnit, number)}, ${((total.toFloat() / goal * 100).toInt().coerceAtMost(100))} percent completed"
+                    }
+                ) {
+                    val fraction = (total.toFloat() / goal).coerceIn(0f, 1f)
+                    Canvas(Modifier.fillMaxSize()) {
+                        val stroke = 15.dp.toPx()
+                        drawArc(palette.track, -90f, 360f, false, style = Stroke(stroke, cap = StrokeCap.Round), size = Size(size.width, size.height))
+                        if (fraction > 0f) drawArc(palette.primary, -90f, 360f * fraction, false, style = Stroke(stroke, cap = StrokeCap.Round), size = Size(size.width, size.height))
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(formatVolumeNumber(total, volumeUnit, number), color = palette.text, fontSize = 35.sp, fontWeight = FontWeight.Bold)
+                        Text("${volumeUnit.label} so far", color = palette.muted, fontSize = 13.sp)
+                        Text("of ${formatVolume(goal, volumeUnit, number)}", color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 3.dp))
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Daily goal", color = palette.muted, fontSize = 13.sp)
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(
+                        onClick = { goal = (goal - 250).coerceAtLeast(500); store.setGoal(goal) },
+                        modifier = Modifier.semantics {
+                            contentDescription = "Decrease daily goal by 250 milliliters"
+                            role = Role.Button
+                        }
+                    ) { Text("−", fontSize = 20.sp, color = palette.primary) }
+                    Text(formatVolume(goal, volumeUnit, number), color = palette.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    TextButton(
+                        onClick = { goal = (goal + 250).coerceAtMost(6000); store.setGoal(goal) },
+                        modifier = Modifier.semantics {
+                            contentDescription = "Increase daily goal by 250 milliliters"
+                            role = Role.Button
+                        }
+                    ) { Text("+", fontSize = 20.sp, color = palette.primary) }
+                }
+            }
+        }
+
+        if (total >= goal) {
+            Spacer(Modifier.height(14.dp))
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = palette.goalBannerBg)
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("🎉", fontSize = 26.sp)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text("Goal Achieved!", color = palette.primary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(
+                            "You reached ${formatVolume(total, volumeUnit, number)} of your ${formatVolume(goal, volumeUnit, number)} target today. Keep up the rhythm!",
+                            color = palette.text,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
+        Button(
+            onClick = { store.add(defaultGlass); logs = store.logs() },
+            modifier = Modifier.fillMaxWidth().height(58.dp).semantics {
+                contentDescription = "Log a glass of water, ${formatVolume(defaultGlass, volumeUnit, number)}"
+            },
+            shape = RoundedCornerShape(18.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = palette.primary, contentColor = palette.onPrimary),
+        ) {
+            Text("＋   Log a glass  ·  ${formatVolume(defaultGlass, volumeUnit, number)}", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            QuickAdd("+${formatVolume(preset1, volumeUnit, number)}", palette) { store.add(preset1); logs = store.logs() }
+            QuickAdd("+${formatVolume(preset2, volumeUnit, number)}", palette) { store.add(preset2); logs = store.logs() }
+            QuickAdd("Custom", palette) { customAmount = ""; showCustomAmount = true }
+        }
+
+        Spacer(Modifier.height(25.dp))
+        Text("This week", color = palette.text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("Your sips, day by day", color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 3.dp, bottom = 12.dp))
+        Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = palette.card)) {
+            Row(
+                Modifier.fillMaxWidth().height(135.dp).padding(horizontal = 12.dp, vertical = 18.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                (6 downTo 0).forEach { daysAgo ->
+                    val date = LocalDate.now().minusDays(daysAgo.toLong())
+                    val amount = if (daysAgo == 0) total else store.total(date)
+                    val fill = (amount.toFloat() / goal).coerceIn(0f, 1f)
+                    val dayFullName = date.dayOfWeek.getDisplayName(TextStyle.FULL, currentLocale)
+                    val daySummary = if (daysAgo == 0) {
+                        "Today ($dayFullName): ${formatVolume(amount, volumeUnit, number)} of ${formatVolume(goal, volumeUnit, number)}"
+                    } else {
+                        "$dayFullName: ${formatVolume(amount, volumeUnit, number)} of ${formatVolume(goal, volumeUnit, number)}"
+                    }
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Bottom,
+                        modifier = Modifier.semantics { contentDescription = daySummary }
+                    ) {
+                        Box(Modifier.width(20.dp).height(70.dp).clip(RoundedCornerShape(12.dp)).background(palette.track), contentAlignment = Alignment.BottomCenter) {
+                            Box(Modifier.fillMaxWidth().fillMaxHeight(fill).clip(RoundedCornerShape(12.dp)).background(if (daysAgo == 0) palette.primary else palette.barMuted))
+                        }
+                        Spacer(Modifier.height(7.dp))
+                        Text(
+                            date.dayOfWeek.getDisplayName(TextStyle.NARROW, currentLocale),
+                            color = if (daysAgo == 0) palette.primary else palette.muted,
+                            fontSize = 12.sp,
+                            fontWeight = if (daysAgo == 0) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
+        }
+
+        if (logs.isNotEmpty()) {
+            Spacer(Modifier.height(25.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Recent sips", color = palette.text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                TextButton(
+                    onClick = { if (store.undoLast()) logs = store.logs() },
+                    modifier = Modifier.semantics { contentDescription = "Undo last logged drink" }
+                ) { Text("Undo last", color = palette.primary) }
             }
             Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                QuickAdd("+150 ml") { store.add(150); logs = store.logs() }
-                QuickAdd("+500 ml") { store.add(500); logs = store.logs() }
-                QuickAdd("Custom") { customAmount = ""; showCustomAmount = true }
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Widget amount", color = Muted, fontSize = 13.sp)
-                Spacer(Modifier.weight(1f))
-                TextButton(
-                    enabled = widgetAmount > 50,
-                    onClick = {
-                        widgetAmount -= 50
-                        store.setWidgetAmount(widgetAmount)
-                    },
-                    modifier = Modifier.semantics {
-                        contentDescription = "Decrease widget amount by 50 milliliters"
-                        role = Role.Button
-                    }
-                ) { Text("−50") }
-                Text("${number.format(widgetAmount)} ml", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                TextButton(
-                    enabled = widgetAmount < 1000,
-                    onClick = {
-                        widgetAmount += 50
-                        store.setWidgetAmount(widgetAmount)
-                    },
-                    modifier = Modifier.semantics {
-                        contentDescription = "Increase widget amount by 50 milliliters"
-                        role = Role.Button
-                    }
-                ) { Text("+50") }
-            }
-
-            Spacer(Modifier.height(25.dp))
-            Text("This week", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Text("Your sips, day by day", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 3.dp, bottom = 12.dp))
-            Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                Row(
-                    Modifier.fillMaxWidth().height(135.dp).padding(horizontal = 12.dp, vertical = 18.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    (6 downTo 0).forEach { daysAgo ->
-                        val date = LocalDate.now().minusDays(daysAgo.toLong())
-                        val amount = if (daysAgo == 0) total else store.total(date)
-                        val fill = (amount.toFloat() / goal).coerceIn(0f, 1f)
-                        val dayFullName = date.dayOfWeek.getDisplayName(TextStyle.FULL, currentLocale)
-                        val daySummary = if (daysAgo == 0) "Today ($dayFullName): ${number.format(amount)} of ${number.format(goal)} milliliters" else "$dayFullName: ${number.format(amount)} of ${number.format(goal)} milliliters"
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Bottom,
-                            modifier = Modifier.semantics { contentDescription = daySummary }
-                        ) {
-                            Box(Modifier.width(20.dp).height(70.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFFEAF0EC)), contentAlignment = Alignment.BottomCenter) {
-                                Box(Modifier.fillMaxWidth().fillMaxHeight(fill).clip(RoundedCornerShape(12.dp)).background(if (daysAgo == 0) Teal else Color(0xFF74BEB0)))
+            Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = palette.card)) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    logs.takeLast(4).asReversed().forEachIndexed { index, log ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(34.dp).clip(CircleShape).background(palette.softChip), contentAlignment = Alignment.Center) {
+                                Text("◌", color = palette.primary, fontSize = 20.sp)
                             }
-                            Spacer(Modifier.height(7.dp))
-                            Text(date.dayOfWeek.getDisplayName(TextStyle.NARROW, currentLocale), color = if (daysAgo == 0) Teal else Muted, fontSize = 12.sp, fontWeight = if (daysAgo == 0) FontWeight.Bold else FontWeight.Normal)
-                        }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(25.dp))
-            Row(verticalAlignment = Alignment.Bottom) {
-                Column {
-                    Text("Gentle reminders", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Text("A quiet nudge on your schedule", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 3.dp))
-                }
-                Spacer(Modifier.weight(1f))
-                Switch(checked = remindersEnabled, onCheckedChange = onReminderChange)
-            }
-            if (notificationDenied) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Allow notifications to receive reminders.", color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                    TextButton(onClick = {
-                        context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
-                    }) { Text("Open settings") }
-                }
-            }
-            if (remindersEnabled) {
-                Spacer(Modifier.height(12.dp))
-                Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                        Text("Remind me every", color = Muted, fontSize = 13.sp)
-                        Spacer(Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(60, 90, 120).forEach { minutes ->
-                                val selected = interval == minutes
-                                Button(
-                                    onClick = {
-                                        interval = minutes
-                                        store.setInterval(minutes)
-                                        if (remindersEnabled) ReminderScheduler.schedule(context)
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = if (selected) Teal else Mint, contentColor = if (selected) Color.White else Ink),
-                                    shape = RoundedCornerShape(13.dp),
-                                    modifier = Modifier.weight(1f),
-                                ) { Text(if (minutes == 60) "1 hour" else if (minutes == 90) "1.5 hours" else "2 hours", fontSize = 12.sp) }
+                            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                Text("Water", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text(DateFormat.getTimeFormat(context).format(Date(log.time)), color = palette.muted, fontSize = 12.sp)
                             }
+                            Text("+${formatVolume(log.amount, volumeUnit, number)}", color = palette.primary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         }
-                        Button(
-                            onClick = {
-                                TimePickerDialog(context, { _, startHour, startMinute ->
-                                    val start = startHour * 60 + startMinute
-                                    TimePickerDialog(context, { _, endHour, endMinute ->
-                                        val end = endHour * 60 + endMinute
-                                        if (start == end) {
-                                            Toast.makeText(context, R.string.reminder_hours_same, Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            reminderStart = start
-                                            reminderEnd = end
-                                            store.setReminderWindow(start, end)
-                                        }
-                                    }, reminderEnd / 60, reminderEnd % 60, DateFormat.is24HourFormat(context)).show()
-                                }, reminderStart / 60, reminderStart % 60, DateFormat.is24HourFormat(context)).show()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Mint, contentColor = Ink),
-                            shape = RoundedCornerShape(13.dp),
-                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                        ) {
-                            Text(stringResource(R.string.reminder_hours_label, formatReminderTime(context, reminderStart, currentLocale), formatReminderTime(context, reminderEnd, currentLocale)))
-                        }
-                        Text("Overnight reminder hours are supported.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+                        if (index < logs.takeLast(4).size - 1) Box(Modifier.fillMaxWidth().height(1.dp).background(palette.divider))
                     }
                 }
             }
-
-            if (logs.isNotEmpty()) {
-                Spacer(Modifier.height(25.dp))
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Recent sips", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.weight(1f))
-                    TextButton(
-                        onClick = { if (store.undoLast()) logs = store.logs() },
-                        modifier = Modifier.semantics { contentDescription = "Undo last logged drink" }
-                    ) { Text("Undo last") }
-                }
-                Spacer(Modifier.height(10.dp))
-                Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                        logs.takeLast(4).asReversed().forEachIndexed { index, log ->
-                            Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(34.dp).clip(CircleShape).background(Mint), contentAlignment = Alignment.Center) { Text("◌", color = Teal, fontSize = 20.sp) }
-                                Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                                    Text("Water", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                    Text(DateFormat.getTimeFormat(context).format(Date(log.time)), color = Muted, fontSize = 12.sp)
-                                }
-                                Text("+${log.amount} ml", color = Teal, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                            if (index < logs.takeLast(4).size - 1) Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFF0F3F1)))
-                        }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(28.dp))
-            Text("Sip at your own pace. Your log is saved locally.", color = Muted, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp))
         }
 
-        if (showCustomAmount) {
-            val parsedAmount = customAmount.toIntOrNull()
-            AlertDialog(
-                onDismissRequest = { showCustomAmount = false },
-                title = { Text("Custom amount") },
-                text = {
-                    OutlinedTextField(
-                        value = customAmount,
-                        onValueChange = { customAmount = it.filter(Char::isDigit).take(4) },
-                        label = { Text("Milliliters") },
-                        supportingText = { Text("Enter 1–5,000 ml") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    )
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            parsedAmount?.let { store.add(it); logs = store.logs(); showCustomAmount = false }
-                        },
-                        enabled = parsedAmount != null && parsedAmount in 1..5000,
-                    ) { Text("Log water") }
-                },
-                dismissButton = { TextButton(onClick = { showCustomAmount = false }) { Text("Cancel") } },
-            )
-        }
+        Spacer(Modifier.height(28.dp))
+        Text(
+            "Sip at your own pace. Your log is saved locally.",
+            color = palette.muted,
+            fontSize = 12.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)
+        )
+    }
+
+    if (showCustomAmount) {
+        val parsedAmount = customAmount.toIntOrNull()
+        AlertDialog(
+            onDismissRequest = { showCustomAmount = false },
+            title = { Text("Custom amount") },
+            text = {
+                OutlinedTextField(
+                    value = customAmount,
+                    onValueChange = { customAmount = it.filter(Char::isDigit).take(4) },
+                    label = { Text("Milliliters") },
+                    supportingText = { Text("Enter 1–5,000 ml") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        parsedAmount?.let { store.add(it); logs = store.logs(); showCustomAmount = false }
+                    },
+                    enabled = parsedAmount != null && parsedAmount in 1..5000,
+                ) { Text("Log water") }
+            },
+            dismissButton = { TextButton(onClick = { showCustomAmount = false }) { Text("Cancel") } },
+        )
     }
 }
 
 @Composable
-private fun RowScope.QuickAdd(label: String, onClick: () -> Unit) {
+private fun RowScope.QuickAdd(label: String, palette: SiprisePalette, onClick: () -> Unit) {
     val description = if (label.startsWith("+")) "Quick add $label of water" else "Log custom amount of water"
     Button(
         onClick = onClick,
@@ -553,20 +725,21 @@ private fun RowScope.QuickAdd(label: String, onClick: () -> Unit) {
             contentDescription = description
         },
         shape = RoundedCornerShape(16.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Mint, contentColor = Ink),
-    ) { Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+        colors = ButtonDefaults.buttonColors(containerColor = palette.softChip, contentColor = palette.text),
+    ) { Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1) }
 }
 
 internal object ReminderScheduler {
     private const val CHANNEL_ID = "siprise_water_reminders"
     const val ACTION_SNOOZE = "com.applify.watertracker.SNOOZE_REMINDER"
+    const val ACTION_QUICK_LOG = "com.applify.watertracker.QUICK_LOG_REMINDER"
 
     fun schedule(context: Context) {
         val store = SipriseStore(context)
         val alarm = context.getSystemService(AlarmManager::class.java)
         val pending = pendingIntent(context)
         val next = Calendar.getInstance()
-        if (store.total(LocalDate.now()) >= store.goal()) {
+        if (store.pauseOnGoal() && store.total(LocalDate.now()) >= store.goal()) {
             next.add(Calendar.DAY_OF_YEAR, 1)
             setWindowStart(next, store.reminderStart())
         } else {
@@ -577,7 +750,6 @@ internal object ReminderScheduler {
         }
         next.set(Calendar.SECOND, 0)
         next.set(Calendar.MILLISECOND, 0)
-        // shortcut: Android may defer these during Doze; use exact alarms only if minute-level timing is needed.
         alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next.timeInMillis, pending)
     }
 
@@ -624,30 +796,52 @@ internal object ReminderScheduler {
     )
 
     fun postNotification(context: Context) {
+        val store = SipriseStore(context)
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Water reminders", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            NotificationChannel(CHANNEL_ID, "Hydration Reminders", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "Gentle reminders to take a sip of water"
             },
         )
         try {
-            val notification = Notification.Builder(context, CHANNEL_ID)
-            val snooze = PendingIntent.getBroadcast(
+            val openAppIntent = PendingIntent.getActivity(
+                context,
+                0,
+                Intent(context, MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val quickLogIntent = PendingIntent.getBroadcast(
+                context,
+                3,
+                Intent(context, ReminderReceiver::class.java).setAction(ACTION_QUICK_LOG),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val snoozeIntent = PendingIntent.getBroadcast(
                 context,
                 2,
                 Intent(context, ReminderReceiver::class.java).setAction(ACTION_SNOOZE),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
+            val glassLabel = "+${formatVolume(store.defaultGlassAmount(), store.volumeUnit())}"
             manager.notify(
                 1,
-                notification.setSmallIcon(R.drawable.ic_notification)
+                Notification.Builder(context, CHANNEL_ID)
+                    .setSmallIcon(R.drawable.ic_notification)
                     .setContentTitle("Time for a little sip")
                     .setContentText("Take a moment to enjoy some water.")
+                    .setContentIntent(openAppIntent)
+                    .addAction(
+                        Notification.Action.Builder(
+                            Icon.createWithResource(context, R.drawable.ic_notification),
+                            glassLabel,
+                            quickLogIntent,
+                        ).build(),
+                    )
                     .addAction(
                         Notification.Action.Builder(
                             Icon.createWithResource(context, R.drawable.ic_notification),
                             context.getString(R.string.reminder_snooze),
-                            snooze,
+                            snoozeIntent,
                         ).build(),
                     )
                     .setAutoCancel(true)
@@ -663,19 +857,30 @@ class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val store = SipriseStore(context)
         if (!store.remindersEnabled()) return
-        if (intent?.action == ReminderScheduler.ACTION_SNOOZE) {
-            if (store.total(LocalDate.now()) < store.goal()) ReminderScheduler.snooze(context)
-            else ReminderScheduler.schedule(context)
-            return
+        when (intent?.action) {
+            ReminderScheduler.ACTION_QUICK_LOG -> {
+                context.getSystemService(NotificationManager::class.java).cancel(1)
+                store.add(store.defaultGlassAmount())
+                return
+            }
+            ReminderScheduler.ACTION_SNOOZE -> {
+                if (!store.pauseOnGoal() || store.total(LocalDate.now()) < store.goal()) {
+                    ReminderScheduler.snooze(context)
+                } else {
+                    ReminderScheduler.schedule(context)
+                }
+                return
+            }
         }
-        if (store.total(LocalDate.now()) < store.goal() && ReminderScheduler.isWithinReminderWindow(Calendar.getInstance(), store.reminderStart(), store.reminderEnd())) {
+        val underGoalOrNotPaused = !store.pauseOnGoal() || store.total(LocalDate.now()) < store.goal()
+        if (underGoalOrNotPaused && ReminderScheduler.isWithinReminderWindow(Calendar.getInstance(), store.reminderStart(), store.reminderEnd())) {
             ReminderScheduler.postNotification(context)
         }
         ReminderScheduler.schedule(context)
     }
 }
 
-private fun formatReminderTime(context: Context, minutes: Int, locale: Locale = Locale.getDefault()): String = LocalTime.of(minutes / 60, minutes % 60)
+internal fun formatReminderTime(context: Context, minutes: Int, locale: Locale = Locale.getDefault()): String = LocalTime.of(minutes / 60, minutes % 60)
     .format(DateTimeFormatter.ofPattern(if (DateFormat.is24HourFormat(context)) "HH:mm" else "h:mm a", locale))
 
 class BootReceiver : BroadcastReceiver() {

@@ -7,7 +7,10 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.widget.RemoteViews
+import androidx.compose.ui.graphics.toArgb
 import java.text.NumberFormat
 import java.time.LocalDate
 
@@ -41,10 +44,28 @@ private fun updateWidget(context: Context, manager: AppWidgetManager, widgetIds:
     val goal = store.goal()
     val widgetAmount = store.widgetAmount()
     val total = store.total(LocalDate.now())
+    val unit = store.volumeUnit()
     val number = NumberFormat.getIntegerInstance()
+
+    val isSystemDark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+    val isDark = when (store.themeMode()) {
+        ThemeMode.Dark -> true
+        ThemeMode.Light -> false
+        ThemeMode.System -> isSystemDark
+    }
+    val palette = store.colorScheme().palette(isDark)
+
     val views = RemoteViews(context.packageName, R.layout.siprise_widget).apply {
-        setTextViewText(R.id.widget_amount, "${number.format(total)} ml")
-        setTextViewText(R.id.widget_goal, "of ${number.format(goal)} ml")
+        setColorStateList(R.id.widget_root, "setBackgroundTintList", ColorStateList.valueOf(palette.card.toArgb()))
+        setTextColor(R.id.widget_amount, palette.text.toArgb())
+        setTextColor(R.id.widget_goal, palette.muted.toArgb())
+        setColorStateList(R.id.widget_add_button, "setBackgroundTintList", ColorStateList.valueOf(palette.primary.toArgb()))
+        setTextColor(R.id.widget_add_button, palette.onPrimary.toArgb())
+        setColorStateList(R.id.widget_progress, "setProgressTintList", ColorStateList.valueOf(palette.primary.toArgb()))
+        setColorStateList(R.id.widget_progress, "setProgressBackgroundTintList", ColorStateList.valueOf(palette.track.toArgb()))
+
+        setTextViewText(R.id.widget_amount, formatVolume(total, unit, number))
+        setTextViewText(R.id.widget_goal, "of ${formatVolume(goal, unit, number)}")
         setProgressBar(R.id.widget_progress, goal, total, false)
         setContentDescription(
             R.id.widget_progress,
@@ -68,7 +89,7 @@ private fun updateWidget(context: Context, manager: AppWidgetManager, widgetIds:
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             ),
         )
-        setTextViewText(R.id.widget_add_button, context.getString(R.string.widget_add_amount, number.format(widgetAmount)))
+        setTextViewText(R.id.widget_add_button, "＋ ${formatVolume(widgetAmount, unit, number)}")
         setContentDescription(R.id.widget_add_button, context.getString(R.string.widget_add_description, number.format(widgetAmount)))
     }
     widgetIds.forEach { manager.updateAppWidget(it, views) }
